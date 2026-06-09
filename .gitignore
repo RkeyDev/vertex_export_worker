@@ -1,0 +1,8 @@
+#Enviornment
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+#Scratchpads
+scratchpad.py
