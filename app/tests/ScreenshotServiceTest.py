@@ -133,7 +133,7 @@ class TestGroupNodesIntoClusters:
 
 
 # ==============================================================================
-# saveScreenshotLocally — Playwright integration (fully mocked)
+#.takeScreenshots — Playwright integration (fully mocked)
 # ==============================================================================
 
 def _build_playwright_mocks(raw_nodes: list[dict]):
@@ -170,7 +170,7 @@ def _build_playwright_mocks(raw_nodes: list[dict]):
     return mock_playwright, mock_page, mock_canvas, mock_browser
 
 
-class TestSaveScreenshotLocally:
+class TestTakeScreenshots:
 
     def test_returns_succeed_on_happy_path(self):
         nodes = [make_node(0, 0, 200, 200, "n1")]
@@ -178,7 +178,7 @@ class TestSaveScreenshotLocally:
 
         with patch("app.infrastructure.ScreenshotService.sync_playwright", return_value=mock_pw):
             service = ScreenshotService(make_export_request())
-            result = service.saveScreenshotLocally()
+            result = service.takeScreenshots()
 
         assert result == OperationResult.SUCCEED
 
@@ -187,7 +187,7 @@ class TestSaveScreenshotLocally:
 
         with patch("app.infrastructure.ScreenshotService.sync_playwright", return_value=mock_pw):
             service = ScreenshotService(make_export_request())
-            result = service.saveScreenshotLocally()
+            result = service.takeScreenshots()
 
         assert result == OperationResult.FAILED
 
@@ -199,7 +199,7 @@ class TestSaveScreenshotLocally:
 
         with patch("app.infrastructure.ScreenshotService.sync_playwright", return_value=mock_pw):
             service = ScreenshotService(make_export_request())
-            result = service.saveScreenshotLocally()
+            result = service.takeScreenshots()
 
         assert result == OperationResult.FAILED
 
@@ -209,7 +209,7 @@ class TestSaveScreenshotLocally:
 
         jwt = "my.test.jwt"
         with patch("app.infrastructure.ScreenshotService.sync_playwright", return_value=mock_pw):
-            ScreenshotService(make_export_request(jwt=jwt)).saveScreenshotLocally()
+            ScreenshotService(make_export_request(jwt=jwt)).takeScreenshots()
 
         injected_calls = [
             str(c) for c in mock_page.evaluate.call_args_list
@@ -223,7 +223,7 @@ class TestSaveScreenshotLocally:
 
         board_id = "board-abc-999"
         with patch("app.infrastructure.ScreenshotService.sync_playwright", return_value=mock_pw):
-            ScreenshotService(make_export_request(board_id=board_id)).saveScreenshotLocally()
+            ScreenshotService(make_export_request(board_id=board_id)).takeScreenshots()
 
         goto_urls = [c.args[0] for c in mock_page.goto.call_args_list if c.args]
         assert any(board_id in url for url in goto_urls), (
@@ -239,7 +239,7 @@ class TestSaveScreenshotLocally:
         mock_pw, mock_page, mock_canvas, mock_browser = _build_playwright_mocks(nodes)
 
         with patch("app.infrastructure.ScreenshotService.sync_playwright", return_value=mock_pw):
-            ScreenshotService(make_export_request()).saveScreenshotLocally()
+            ScreenshotService(make_export_request()).takeScreenshots()
 
         assert mock_canvas.screenshot.call_count == 2
 
@@ -251,7 +251,7 @@ class TestSaveScreenshotLocally:
         mock_pw, mock_page, mock_canvas, mock_browser = _build_playwright_mocks(nodes)
 
         with patch("app.infrastructure.ScreenshotService.sync_playwright", return_value=mock_pw):
-            ScreenshotService(make_export_request()).saveScreenshotLocally()
+            ScreenshotService(make_export_request()).takeScreenshots()
 
         assert mock_canvas.screenshot.call_count == 1
 
@@ -260,7 +260,7 @@ class TestSaveScreenshotLocally:
         mock_pw, mock_page, mock_canvas, mock_browser = _build_playwright_mocks(nodes)
 
         with patch("app.infrastructure.ScreenshotService.sync_playwright", return_value=mock_pw):
-            ScreenshotService(make_export_request()).saveScreenshotLocally()
+            ScreenshotService(make_export_request()).takeScreenshots()
 
         mock_browser.close.assert_called_once()
 
@@ -268,7 +268,7 @@ class TestSaveScreenshotLocally:
         mock_pw, mock_page, mock_canvas, mock_browser = _build_playwright_mocks([])
 
         with patch("app.infrastructure.ScreenshotService.sync_playwright", return_value=mock_pw):
-            ScreenshotService(make_export_request()).saveScreenshotLocally()
+            ScreenshotService(make_export_request()).takeScreenshots()
 
         mock_browser.close.assert_called_once()
 
@@ -293,6 +293,6 @@ class TestSaveScreenshotLocally:
         mock_page.evaluate.side_effect = evaluate_side_effect
 
         with patch("app.infrastructure.ScreenshotService.sync_playwright", return_value=mock_pw):
-            ScreenshotService(make_export_request()).saveScreenshotLocally()
+            ScreenshotService(make_export_request()).takeScreenshots()
 
         assert len(set_camera_calls) == 2
