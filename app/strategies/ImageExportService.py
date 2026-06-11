@@ -4,8 +4,10 @@ from app.strategies.ExportProcessor import ExportProcessor
 
 class ImageExportService(ExportProcessor):
     
+    @staticmethod
     def requiresScreenshots() -> bool:
         return True
      
+    @staticmethod
     def exportBoard(exportRequest: ExportRequest) -> OperationResult:
         pass

@@ -4,10 +4,12 @@ from app.dataTypes.ExportRequest import ExportRequest
 
 class ExportProcessor(ABC):
     
+    @staticmethod
     @abstractmethod
     def requiresScreenshots() -> bool:
         pass
      
+    @staticmethod
     @abstractmethod
     def exportBoard(exportRequest: ExportRequest) -> OperationResult:
         pass

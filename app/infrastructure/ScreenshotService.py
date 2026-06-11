@@ -78,7 +78,7 @@ class ScreenshotService:
     # MAIN CAPTURE PIPELINE
     # ==========================================================================
 
-    def saveScreenshotLocally(self) -> OperationResult:
+    def takeScreenshots(self) -> OperationResult:
         board_id  = self.exportRequest.boardId
         jwt_token = self.exportRequest.senderJwt
         target_url = f"{_BASE_URL}/board?id={board_id}"
