@@ -1,4 +1,4 @@
-from dataTypes.OperationResult import OperationResult
+from app.dataTypes.OperationResult import OperationResult
 
 class CloudStorageService:
     def __init__(self, localDirectoryPath: str) -> None:

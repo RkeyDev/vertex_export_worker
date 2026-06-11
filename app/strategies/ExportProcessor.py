@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
-from dataTypes.OperationResult import OperationResult
-from dataTypes.ExportRequest import ExportRequest
+from app.dataTypes.OperationResult import OperationResult
+from app.dataTypes.ExportRequest import ExportRequest
 
 class ExportProcessor(ABC):
     

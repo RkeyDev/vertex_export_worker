@@ -1,6 +1,6 @@
 from dataTypes.ExportRequest import ExportRequest
 from dataTypes.OperationResult import OperationResult
-from ExportProcessor import ExportProcessor
+from app.strategies.ExportProcessor import ExportProcessor
 
 class PdfExportService(ExportProcessor):
     

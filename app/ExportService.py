@@ -1,5 +1,7 @@
-from dataTypes.OperationResult import OperationResult
-from dataTypes.ExportRequest import ExportRequest
+from app.dataTypes.OperationResult import OperationResult
+from app.dataTypes.ExportRequest import ExportRequest
+from app.infrastructure.RedisManager import RedisManager
+
 from typing import Union
 
 class ExportService:

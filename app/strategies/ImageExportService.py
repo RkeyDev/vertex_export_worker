@@ -1,6 +1,6 @@
-from dataTypes.ExportRequest import ExportRequest
-from dataTypes.OperationResult import OperationResult
-from ExportProcessor import ExportProcessor
+from app.dataTypes.ExportRequest import ExportRequest
+from app.dataTypes.OperationResult import OperationResult
+from app.strategies.ExportProcessor import ExportProcessor
 
 class ImageExportService(ExportProcessor):
     

@@ -1,4 +1,4 @@
-from FileType import FileType
+from app.dataTypes.FileType import FileType
 from datetime import datetime
 
 class ExportRequest:

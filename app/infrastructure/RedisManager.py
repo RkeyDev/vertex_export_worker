@@ -1,4 +1,4 @@
-from dataTypes.OperationResult import OperationResult
+from app.dataTypes.OperationResult import OperationResult
 from typing import Union, Any
 
 class RedisManager:
