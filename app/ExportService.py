@@ -52,7 +52,7 @@ class ExportService:
         result = export_processor.exportBoard(request) #Start exporting board to the correct type
         
         if result == OperationResult.SUCCEED:
-            logger.log("Successfully export board!")
+            logger.info("Successfully export board!")
         else:
             logger.error("Failed to export board")
         

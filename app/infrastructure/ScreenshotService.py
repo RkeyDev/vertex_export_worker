@@ -1,4 +1,5 @@
 import math
+import os
 from playwright.sync_api import sync_playwright
 
 from app.dataTypes.OperationResult import OperationResult
@@ -14,7 +15,8 @@ from app.dataTypes.ExportRequest import ExportRequest
 _VIEWPORT_WIDTH    = 1920
 _VIEWPORT_HEIGHT   = 1080
 _PADDING_FACTOR    = 1.50   # 50% padding margin around each cluster bounding box
-_MAX_ZOOM_LEVEL    = 1.0    # Prevent micro-zooming on single-element clusters
+_MIN_ZOOM_LEVEL    = 0.5    # Prevent micro-zooming on small or tight clusters
+_MAX_ZOOM_LEVEL    = 5.0    # Prevent runaway zoom-out on massive clusters
 _CLUSTER_THRESHOLD = 650.0  # Max canvas-space pixel distance to merge two nodes
 _BASE_URL          = "http://localhost:5174"
 
@@ -79,9 +81,10 @@ class ScreenshotService:
     # ==========================================================================
 
     def takeScreenshots(self) -> OperationResult:
-        board_id  = self.export_request.board_id
-        jwt_token = self.export_request.sender_jwt
-        target_url = f"{_BASE_URL}/board?id={board_id}"
+        board_id     = self.export_request.board_id
+        sender_email = self.export_request.sender_email
+        jwt_token    = self.export_request.sender_jwt
+        target_url   = f"{_BASE_URL}/board?id={board_id}"
 
         try:
             with sync_playwright() as p:
@@ -191,6 +194,11 @@ class ScreenshotService:
                 # render pipelines, and exports each cluster as a JPEG snapshot.
                 # ------------------------------------------------------------------
 
+                # Ensure output directory exists before writing any snapshots
+                output_dir = os.path.join(".", "output", sender_email, board_id)
+                os.makedirs(output_dir, exist_ok=True)
+                print(f"[INFO] Saving screenshots to: {output_dir}")
+
                 saved_paths: list[str] = []
 
                 for idx, cluster in enumerate(clusters):
@@ -207,7 +215,7 @@ class ScreenshotService:
 
                     scale_x = _VIEWPORT_WIDTH  / (cluster_w * _PADDING_FACTOR)
                     scale_y = _VIEWPORT_HEIGHT / (cluster_h * _PADDING_FACTOR)
-                    final_zoom = min(min(scale_x, scale_y), _MAX_ZOOM_LEVEL)
+                    final_zoom = max(min(min(scale_x, scale_y), _MAX_ZOOM_LEVEL), _MIN_ZOOM_LEVEL)
 
                     offset_x = (_VIEWPORT_WIDTH  / 2) - (center_x * final_zoom)
                     offset_y = (_VIEWPORT_HEIGHT / 2) - (center_y * final_zoom)
@@ -232,13 +240,12 @@ class ScreenshotService:
                     # and Konva frame redrawing to fully complete before capturing.
                     page.wait_for_timeout(800)
 
-                    out_path = f"cluster_output_{idx + 1}.jpeg"
+                    out_path = os.path.join(output_dir, f"cluster_output_{idx + 1:02d}.jpeg")
                     canvas_locator.screenshot(path=out_path, type="jpeg", quality=95)
                     saved_paths.append(out_path)
                     print(f"  └ Saved snapshot: {out_path}")
 
                 browser.close()
-
                 return OperationResult.SUCCEED
 
         except Exception as e:
