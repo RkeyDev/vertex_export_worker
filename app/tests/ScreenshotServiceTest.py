@@ -15,12 +15,12 @@ from app.infrastructure.ScreenshotService import ScreenshotService, _CLUSTER_THR
 
 def make_export_request(board_id="test-board-123", jwt="mock.jwt.token") -> ExportRequest:
     return ExportRequest(
-        requestId="req-001",
-        boardId=board_id,
-        senderJwt=jwt,
-        senderEmail="roei1576@gmail.com",
-        fileType=FileType.JPEG,
-        requestTimeStamp=datetime(2025, 1, 1, 12, 0, 0),
+        request_id="req-001",
+        board_id=board_id,
+        sender_jwt=jwt,
+        sender_email="roei1576@gmail.com",
+        file_type=FileType.JPEG,
+        request_time_stamp=datetime(2025, 1, 1, 12, 0, 0),
     )
 
 
@@ -40,34 +40,33 @@ class TestCalculateBoxDistance:
         assert ScreenshotService._calculate_box_distance(a, b) == 0.0
 
     def test_touching_nodes_return_zero(self):
-        # b starts exactly where a ends
         a = make_node(0, 0, 100, 100)
         b = make_node(100, 0, 100, 100)
         assert ScreenshotService._calculate_box_distance(a, b) == 0.0
 
     def test_horizontal_gap(self):
         a = make_node(0, 0, 100, 100)
-        b = make_node(150, 0, 100, 100)  # 50px gap
+        b = make_node(150, 0, 100, 100)
         assert ScreenshotService._calculate_box_distance(a, b) == pytest.approx(50.0)
 
     def test_vertical_gap(self):
         a = make_node(0, 0, 100, 100)
-        b = make_node(0, 200, 100, 100)  # 100px gap
+        b = make_node(0, 200, 100, 100)
         assert ScreenshotService._calculate_box_distance(a, b) == pytest.approx(100.0)
 
     def test_diagonal_gap(self):
         a = make_node(0, 0, 100, 100)
-        b = make_node(200, 200, 100, 100)  # 100px gap in both axes
+        b = make_node(200, 200, 100, 100)
         assert ScreenshotService._calculate_box_distance(a, b) == pytest.approx(math.sqrt(100**2 + 100**2))
 
     def test_node_b_left_of_node_a(self):
         a = make_node(200, 0, 100, 100)
-        b = make_node(0, 0, 100, 100)   # 100px gap to the left
+        b = make_node(0, 0, 100, 100)
         assert ScreenshotService._calculate_box_distance(a, b) == pytest.approx(100.0)
 
     def test_node_b_above_node_a(self):
         a = make_node(0, 200, 100, 100)
-        b = make_node(0, 0, 100, 100)   # 100px gap above
+        b = make_node(0, 0, 100, 100)
         assert ScreenshotService._calculate_box_distance(a, b) == pytest.approx(100.0)
 
     def test_identical_nodes_return_zero(self):
@@ -89,31 +88,30 @@ class TestGroupNodesIntoClusters:
 
     def test_two_close_nodes_merge(self):
         a = make_node(0,   0, 100, 100, "a")
-        b = make_node(150, 0, 100, 100, "b")   # 50px gap — within threshold of 100
+        b = make_node(150, 0, 100, 100, "b")
         clusters = ScreenshotService._group_nodes_into_clusters([a, b], 100)
         assert len(clusters) == 1
         assert set(n["id"] for n in clusters[0]) == {"a", "b"}
 
     def test_two_far_nodes_stay_separate(self):
         a = make_node(0,    0, 100, 100, "a")
-        b = make_node(1000, 0, 100, 100, "b")  # 900px gap — beyond threshold of 100
+        b = make_node(1000, 0, 100, 100, "b")
         clusters = ScreenshotService._group_nodes_into_clusters([a, b], 100)
         assert len(clusters) == 2
 
     def test_chain_merge_three_nodes(self):
-        # a–b are close, b–c are close, so all three should merge even if a–c are far
         a = make_node(0,   0, 100, 100, "a")
-        b = make_node(150, 0, 100, 100, "b")   # 50px from a
-        c = make_node(300, 0, 100, 100, "c")   # 50px from b, 200px from a
+        b = make_node(150, 0, 100, 100, "b")
+        c = make_node(300, 0, 100, 100, "c")
         clusters = ScreenshotService._group_nodes_into_clusters([a, b, c], 100)
         assert len(clusters) == 1
         assert len(clusters[0]) == 3
 
     def test_two_separate_groups(self):
         a = make_node(0,    0, 100, 100, "a")
-        b = make_node(150,  0, 100, 100, "b")  # close to a
+        b = make_node(150,  0, 100, 100, "b")
         c = make_node(2000, 0, 100, 100, "c")
-        d = make_node(2150, 0, 100, 100, "d")  # close to c
+        d = make_node(2150, 0, 100, 100, "d")
         clusters = ScreenshotService._group_nodes_into_clusters([a, b, c, d], 100)
         assert len(clusters) == 2
         ids = [set(n["id"] for n in cl) for cl in clusters]
@@ -124,42 +122,32 @@ class TestGroupNodesIntoClusters:
         assert ScreenshotService._group_nodes_into_clusters([], 100) == []
 
     def test_threshold_zero_only_overlapping_merge(self):
-        # With threshold=0, only touching/overlapping nodes merge
-        a = make_node(0, 0, 100, 100, "a")
-        b = make_node(100, 0, 100, 100, "b")   # touching — distance == 0
-        c = make_node(201, 0, 100, 100, "c")   # 1px gap
+        a = make_node(0,   0, 100, 100, "a")
+        b = make_node(100, 0, 100, 100, "b")
+        c = make_node(201, 0, 100, 100, "c")
         clusters = ScreenshotService._group_nodes_into_clusters([a, b, c], 0)
         assert len(clusters) == 2
 
 
 # ==============================================================================
-#.takeScreenshots — Playwright integration (fully mocked)
+# takeScreenshots — Playwright integration (fully mocked)
 # ==============================================================================
 
 def _build_playwright_mocks(raw_nodes: list[dict]):
-    """
-    Constructs the layered mock tree that sync_playwright().__enter__ returns,
-    wired so page.evaluate() returns raw_nodes on the extraction call and None
-    on all setup calls.
-    """
     mock_page = MagicMock()
     mock_canvas = MagicMock()
     mock_browser = MagicMock()
     mock_context = MagicMock()
     mock_playwright = MagicMock()
 
-    # Wire browser/context/page creation chain
     mock_playwright.__enter__ = MagicMock(return_value=mock_playwright)
     mock_playwright.__exit__ = MagicMock(return_value=False)
     mock_playwright.chromium.launch.return_value = mock_browser
     mock_browser.new_context.return_value = mock_context
     mock_context.new_page.return_value = mock_page
 
-    # Canvas locator
     mock_page.locator.return_value = mock_canvas
 
-    # page.evaluate(): return raw_nodes only on the extraction call (the one that
-    # returns a list); all other calls (setup JS) return None.
     def evaluate_side_effect(script, *args, **kwargs):
         if isinstance(script, str) and "extracted.push" in script:
             return raw_nodes
@@ -231,7 +219,6 @@ class TestTakeScreenshots:
         )
 
     def test_screenshot_taken_once_per_cluster(self):
-        # Two nodes far apart → two clusters → two screenshots
         nodes = [
             make_node(0,    0, 100, 100, "a"),
             make_node(5000, 0, 100, 100, "b"),
@@ -246,7 +233,7 @@ class TestTakeScreenshots:
     def test_single_cluster_produces_one_screenshot(self):
         nodes = [
             make_node(0,   0, 100, 100, "a"),
-            make_node(150, 0, 100, 100, "b"),  # close — merges into one cluster
+            make_node(150, 0, 100, 100, "b"),
         ]
         mock_pw, mock_page, mock_canvas, mock_browser = _build_playwright_mocks(nodes)
 
@@ -273,7 +260,6 @@ class TestTakeScreenshots:
         mock_browser.close.assert_called_once()
 
     def test_setcamera_called_for_each_cluster(self):
-        # Three nodes: two nearby (one cluster) + one far (second cluster) → 2 setCamera calls
         nodes = [
             make_node(0,    0, 100, 100, "a"),
             make_node(150,  0, 100, 100, "b"),
