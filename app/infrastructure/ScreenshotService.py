@@ -79,8 +79,8 @@ class ScreenshotService:
     # ==========================================================================
 
     def takeScreenshots(self) -> OperationResult:
-        board_id  = self.export_request.boardId
-        jwt_token = self.export_request.senderJwt
+        board_id  = self.export_request.board_id
+        jwt_token = self.export_request.sender_jwt
         target_url = f"{_BASE_URL}/board?id={board_id}"
 
         try:
