@@ -21,8 +21,8 @@ _BASE_URL          = "http://localhost:5174"
 
 class ScreenshotService:
 
-    def __init__(self, exportRequest: ExportRequest) -> None:
-        self.exportRequest = exportRequest
+    def __init__(self, export_request: ExportRequest) -> None:
+        self.export_request = export_request
 
     # ==========================================================================
     # SPATIAL ALGORITHMS & CLUSTERING MECHANISMS
@@ -79,8 +79,8 @@ class ScreenshotService:
     # ==========================================================================
 
     def takeScreenshots(self) -> OperationResult:
-        board_id  = self.exportRequest.boardId
-        jwt_token = self.exportRequest.senderJwt
+        board_id  = self.export_request.boardId
+        jwt_token = self.export_request.senderJwt
         target_url = f"{_BASE_URL}/board?id={board_id}"
 
         try:

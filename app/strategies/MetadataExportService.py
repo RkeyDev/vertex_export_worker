@@ -9,5 +9,5 @@ class MetadataExportService(ExportProcessor):
         return False
      
     @staticmethod
-    def exportBoard(exportRequest: ExportRequest) -> OperationResult:
+    def exportBoard(export_request: ExportRequest) -> OperationResult:
         pass

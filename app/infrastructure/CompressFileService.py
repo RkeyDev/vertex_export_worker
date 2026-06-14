@@ -1,5 +1,5 @@
 from typing import Union
 
 class CompressFileService:
-    def compressFiles(directoryPath: str) -> Union[str, None]:
+    def compressFiles(directory_path: str) -> Union[str, None]:
         pass

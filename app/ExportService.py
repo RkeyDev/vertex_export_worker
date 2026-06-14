@@ -15,9 +15,9 @@ class ExportService:
     
     
     def __init__(self):
-        self.redisManager = RedisManager()
+        self.redis_manager = RedisManager()
         
-        self.exportTypeRoutes = {
+        self.export_type_routes = {
             FileType.JPEG: ImageExportService,
             FileType.PDF: PdfExportService,
             FileType.VERTEX: MetadataExportService
@@ -26,20 +26,23 @@ class ExportService:
     def handlePendingRequest(self) -> OperationResult:
         request = self.getPendingExportRequest() #Get the ExportRequest object with the data from redis
         
-        if(request == None):
+        if request is None:
             return OperationResult.FAILED
         
         #Get the correct export processor class according to the file type specified in the request
-        exportProcessor: ExportProcessor = self.exportTypeRoutes.get(request.fileType)
+        export_processor: ExportProcessor = self.export_type_routes.get(request.fileType)
         
-        if exportProcessor.requiresScreenshots():
-            screenshotSerivce = ScreenshotService(request)
-            result = screenshotSerivce.takeScreenshots()
+        if export_processor is None:
+            return OperationResult.FAILED
+        
+        if export_processor.requiresScreenshots():
+            screenshot_service = ScreenshotService(request)
+            result = screenshot_service.takeScreenshots()
             
             if result != OperationResult.SUCCEED:
                 return OperationResult.FAILED
         
-        result = exportProcessor.exportBoard(request) #Start exporting board to the correct type
+        result = export_processor.exportBoard(request) #Start exporting board to the correct type
         
         return result
             
