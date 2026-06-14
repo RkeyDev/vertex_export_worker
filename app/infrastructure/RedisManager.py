@@ -1,3 +1,4 @@
+import os
 import redis
 import json
 import logging
@@ -10,8 +11,8 @@ logger = logging.getLogger(__name__)
 class RedisManager:
 
     EXPORT_QUEUE_KEY = "export:queue"
-    DEFAULT_HOST = "localhost"
-    DEFAULT_PORT = 6379
+    DEFAULT_HOST = os.environ.get("REDIS_HOST", "localhost")
+    DEFAULT_PORT = int(os.environ.get("REDIS_PORT", 6379))
     DEFAULT_DB = 0
 
     def __init__(self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT, db: int = DEFAULT_DB, password: Optional[str] = None):

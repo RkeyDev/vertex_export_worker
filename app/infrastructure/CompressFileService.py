@@ -2,19 +2,21 @@ import os
 import zipfile
 from typing import Union
 
+from app.dataTypes.ExportRequest import ExportRequest
+
 
 class CompressFileService:
 
     @staticmethod
-    def compressFiles(sender_email: str, board_id: str) -> Union[str, None]:
+    def compressFiles(export_request: ExportRequest) -> Union[str, None]:
         """
         Compresses the entire board output directory into a ZIP archive.
-        Saved alongside the PDF at ./output/{sender_email}/{board_id}/
+        Saved inside the export request's output directory.
 
         :return: Path to the created ZIP file, or None if compression failed.
         """
-        source_dir = os.path.join(".", "output", sender_email, board_id)
-        output_zip = os.path.join(".", "output", sender_email, board_id, f"{board_id}.zip")
+        source_dir = export_request.output_dir
+        output_zip = os.path.join(source_dir, f"{export_request.board_id}.zip")
 
         if not os.path.isdir(source_dir):
             print(f"[CompressFileService] Source directory not found: {source_dir}")
@@ -36,5 +38,5 @@ class CompressFileService:
             return output_zip
 
         except Exception as e:
-            print(f"[CompressFileService] Compression failed for board '{board_id}': {e}")
+            print(f"[CompressFileService] Compression failed for board '{export_request.board_id}': {e}")
             return None

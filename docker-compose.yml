@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  export-worker:
+    build: .
+    volumes:
+      - ./output:/app/output
+    environment:
+      - REDIS_HOST=vertex-cache
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - vertex_backend_vertex-network
+
+networks:
+  vertex_backend_vertex-network:
+    external: true

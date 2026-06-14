@@ -32,9 +32,8 @@ class PdfExportService(ExportProcessor):
 
     @staticmethod
     def exportBoard(export_request: ExportRequest) -> OperationResult:
-        board_id     = export_request.board_id
-        sender_email = export_request.sender_email
-        screenshots_dir = os.path.join(".", "output", sender_email, board_id)
+        board_id        = export_request.board_id
+        screenshots_dir = export_request.output_dir
 
         logger.info(
             "Starting PDF export for board '%s'. Scanning directory: %s",
@@ -60,7 +59,7 @@ class PdfExportService(ExportProcessor):
 
         try:
             pdf_filename = f"{board_id}.pdf"
-            output_path  = os.path.join(".", "output", sender_email, board_id, pdf_filename)
+            output_path  = os.path.join(export_request.output_dir, pdf_filename)
 
             logger.debug("Writing PDF to: %s", output_path)
 

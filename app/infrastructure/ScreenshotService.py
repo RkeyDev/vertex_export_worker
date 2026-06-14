@@ -5,20 +5,18 @@ from playwright.sync_api import sync_playwright
 from app.dataTypes.OperationResult import OperationResult
 from app.dataTypes.ExportRequest import ExportRequest
 
-
 # ==============================================================================
-# MOCK CONFIGURATION
+# CONFIGURATION CONSTANTS
 # ==============================================================================
-# Tuning parameters not present on ExportRequest — override as needed.
-# ==============================================================================
-
 _VIEWPORT_WIDTH    = 1920
 _VIEWPORT_HEIGHT   = 1080
 _PADDING_FACTOR    = 1.50   # 50% padding margin around each cluster bounding box
 _MIN_ZOOM_LEVEL    = 0.5    # Prevent micro-zooming on small or tight clusters
 _MAX_ZOOM_LEVEL    = 5.0    # Prevent runaway zoom-out on massive clusters
 _CLUSTER_THRESHOLD = 650.0  # Max canvas-space pixel distance to merge two nodes
-_BASE_URL          = "http://localhost:5174"
+
+# Fallback to localhost if environment variable is not set (e.g., native host development)
+_BASE_URL = os.getenv("BASE_URL", "http://localhost:5174")
 
 
 class ScreenshotService:
@@ -88,17 +86,39 @@ class ScreenshotService:
 
         try:
             with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True)
+                browser = p.chromium.launch(
+                    headless=True,
+                    args=[
+                        "--no-sandbox",
+                        "--disable-setuid-sandbox",
+                        "--disable-dev-shm-usage",
+                        "--disable-web-security",
+                        "--allow-running-insecure-content"
+                    ]
+                )
                 context = browser.new_context(
                     viewport={"width": _VIEWPORT_WIDTH, "height": _VIEWPORT_HEIGHT}
                 )
                 page = context.new_page()
 
                 # ------------------------------------------------------------------
-                # PLAYWRIGHT INITIALIZATION & WORKSPACE INJECTION
+                # DIAGNOSTIC ENGINE INTERCEPTORS
                 # ------------------------------------------------------------------
-                # Inject session token ahead of main layout initialization to bypass
-                # auth redirects, then navigate to the target board URL.
+                page.on("console", lambda msg: print(f"  [Browser Console] {msg.type.upper()}: {msg.text}"))
+                page.on("response", lambda res: print(f"  [Browser Network] {res.status} -> {res.url}") if res.status >= 400 else None)
+                page.on("requestfailed", lambda req: print(f"  [Browser Network Error] Failed: {req.url}"))
+                page.on("pageerror", lambda exc: print(f"  [Browser Runtime Crash] CRITICAL EXCEPTION: {exc}"))
+
+
+                # ------------------------------------------------------------------
+                # NOTE: WebSocket connections to localhost:9080 are handled
+                # transparently by the socat port forwarder in entrypoint.sh.
+                # No URL rewriting is needed — this preserves the Origin and
+                # Host headers that the WS server validates on handshake.
+                # ------------------------------------------------------------------
+
+                # ------------------------------------------------------------------
+                # PLAYWRIGHT INITIALIZATION & WORKSPACE INJECTION
                 # ------------------------------------------------------------------
 
                 page.goto(_BASE_URL)
@@ -126,10 +146,6 @@ class ScreenshotService:
                 # ------------------------------------------------------------------
                 # IN-BROWSER METRIC EXTRACTION ENGINE
                 # ------------------------------------------------------------------
-                # Queries live layout trees directly from Konva via the engine runtime.
-                # Coordinates are relative to the base stage space to ensure zero
-                # dependency on current viewport zoom states or camera positions.
-                # ------------------------------------------------------------------
 
                 raw_nodes = page.evaluate("""
                     () => {
@@ -139,20 +155,14 @@ class ScreenshotService:
                             return [];
                         }
 
-                        // Buffer catches text kerning overflows, borders, and CSS drop
-                        // shadows missed by standard bounding math.
                         const NODE_STROKE_BUFFER = 35;
                         const extracted = [];
 
                         stage.getLayers().forEach(layer => {
                             layer.getChildren().forEach((node, index) => {
                                 const className = node.getClassName();
-
-                                // Eliminate overlay utility systems, active markers, and transient lines
                                 if (className === 'Transformer' || className === 'Arrow') return;
 
-                                // CRITICAL: '{ relativeTo: stage }' forces Konva to return absolute
-                                // model-space coordinates rather than browser window layout coordinates.
                                 const rect = node.getClientRect({ relativeTo: stage });
                                 if (!rect.width || !rect.height) return;
 
@@ -185,17 +195,11 @@ class ScreenshotService:
                     f"into {len(clusters)} visual clusters."
                 )
 
-                page.on("console", lambda msg: print(f"  [Browser] {msg.type}: {msg.text}"))
-
                 # ------------------------------------------------------------------
                 # CAMERA VIEWPORT TRANSITIONS & RENDERED CAPTURE
                 # ------------------------------------------------------------------
-                # Iterates through cluster maps, repositions the camera, blocks for
-                # render pipelines, and exports each cluster as a JPEG snapshot.
-                # ------------------------------------------------------------------
 
-                # Ensure output directory exists before writing any snapshots
-                output_dir = os.path.join(".", "output", sender_email, board_id)
+                output_dir = self.export_request.output_dir
                 os.makedirs(output_dir, exist_ok=True)
                 print(f"[INFO] Saving screenshots to: {output_dir}")
 
@@ -236,8 +240,6 @@ class ScreenshotService:
                         }
                     """, {"x": offset_x, "y": offset_y, "zoom": final_zoom})
 
-                    # Allow async React state reconciliation, virtual rendering adjustments,
-                    # and Konva frame redrawing to fully complete before capturing.
                     page.wait_for_timeout(800)
 
                     out_path = os.path.join(output_dir, f"cluster_output_{idx + 1:02d}.jpeg")
@@ -249,4 +251,5 @@ class ScreenshotService:
                 return OperationResult.SUCCEED
 
         except Exception as e:
+            print(f"[ERROR] Executing snapshot process failed: {str(e)}")
             return OperationResult.FAILED
