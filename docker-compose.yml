@@ -3,6 +3,7 @@ version: '3.8'
 services:
   export-worker:
     build: .
+    scale: 3
     volumes:
       - ./output:/app/output
     environment:

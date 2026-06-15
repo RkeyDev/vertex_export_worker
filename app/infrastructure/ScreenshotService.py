@@ -1,6 +1,6 @@
 import math
 import os
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import Browser
 
 from app.dataTypes.OperationResult import OperationResult
 from app.dataTypes.ExportRequest import ExportRequest
@@ -10,19 +10,19 @@ from app.dataTypes.ExportRequest import ExportRequest
 # ==============================================================================
 _VIEWPORT_WIDTH    = 1920
 _VIEWPORT_HEIGHT   = 1080
-_PADDING_FACTOR    = 1.50   # 50% padding margin around each cluster bounding box
-_MIN_ZOOM_LEVEL    = 0.5    # Prevent micro-zooming on small or tight clusters
-_MAX_ZOOM_LEVEL    = 5.0    # Prevent runaway zoom-out on massive clusters
-_CLUSTER_THRESHOLD = 650.0  # Max canvas-space pixel distance to merge two nodes
+_PADDING_FACTOR    = 1.50
+_MIN_ZOOM_LEVEL    = 0.5
+_MAX_ZOOM_LEVEL    = 5.0
+_CLUSTER_THRESHOLD = 650.0
 
-# Fallback to localhost if environment variable is not set (e.g., native host development)
 _BASE_URL = os.getenv("BASE_URL", "http://localhost:5174")
 
 
 class ScreenshotService:
 
-    def __init__(self, export_request: ExportRequest) -> None:
+    def __init__(self, export_request: ExportRequest, browser: Browser) -> None:
         self.export_request = export_request
+        self._browser = browser
 
     # ==========================================================================
     # SPATIAL ALGORITHMS & CLUSTERING MECHANISMS
@@ -80,176 +80,153 @@ class ScreenshotService:
 
     def takeScreenshots(self) -> OperationResult:
         board_id     = self.export_request.board_id
-        sender_email = self.export_request.sender_email
         jwt_token    = self.export_request.sender_jwt
         target_url   = f"{_BASE_URL}/board?id={board_id}"
 
         try:
-            with sync_playwright() as p:
-                browser = p.chromium.launch(
-                    headless=True,
-                    args=[
-                        "--no-sandbox",
-                        "--disable-setuid-sandbox",
-                        "--disable-dev-shm-usage",
-                        "--disable-web-security",
-                        "--allow-running-insecure-content"
-                    ]
-                )
-                context = browser.new_context(
-                    viewport={"width": _VIEWPORT_WIDTH, "height": _VIEWPORT_HEIGHT}
-                )
-                page = context.new_page()
+            # Each job gets its own isolated context (cookies, localStorage, etc.)
+            # but shares the already-running browser process — no cold-start.
+            context = self._browser.new_context(
+                viewport={"width": _VIEWPORT_WIDTH, "height": _VIEWPORT_HEIGHT}
+            )
+            page = context.new_page()
 
-                # ------------------------------------------------------------------
-                # DIAGNOSTIC ENGINE INTERCEPTORS
-                # ------------------------------------------------------------------
-                page.on("console", lambda msg: print(f"  [Browser Console] {msg.type.upper()}: {msg.text}"))
-                page.on("response", lambda res: print(f"  [Browser Network] {res.status} -> {res.url}") if res.status >= 400 else None)
-                page.on("requestfailed", lambda req: print(f"  [Browser Network Error] Failed: {req.url}"))
-                page.on("pageerror", lambda exc: print(f"  [Browser Runtime Crash] CRITICAL EXCEPTION: {exc}"))
+            # ------------------------------------------------------------------
+            # DIAGNOSTIC ENGINE INTERCEPTORS
+            # ------------------------------------------------------------------
+            page.on("console", lambda msg: print(f"  [Browser Console] {msg.type.upper()}: {msg.text}"))
+            page.on("response", lambda res: print(f"  [Browser Network] {res.status} -> {res.url}") if res.status >= 400 else None)
+            page.on("requestfailed", lambda req: print(f"  [Browser Network Error] Failed: {req.url}"))
+            page.on("pageerror", lambda exc: print(f"  [Browser Runtime Crash] CRITICAL EXCEPTION: {exc}"))
 
+            # ------------------------------------------------------------------
+            # PLAYWRIGHT INITIALIZATION & WORKSPACE INJECTION
+            # ------------------------------------------------------------------
+            page.goto(_BASE_URL)
+            page.evaluate(f"window.localStorage.setItem('vertex_access_token', '{jwt_token}');")
+            page.goto(target_url, wait_until="networkidle")
 
-                # ------------------------------------------------------------------
-                # NOTE: WebSocket connections to localhost:9080 are handled
-                # transparently by the socat port forwarder in entrypoint.sh.
-                # No URL rewriting is needed — this preserves the Origin and
-                # Host headers that the WS server validates on handshake.
-                # ------------------------------------------------------------------
+            canvas_locator = page.locator("canvas")
+            canvas_locator.wait_for(state="visible")
 
-                # ------------------------------------------------------------------
-                # PLAYWRIGHT INITIALIZATION & WORKSPACE INJECTION
-                # ------------------------------------------------------------------
+            page.wait_for_timeout(2000)
 
-                page.goto(_BASE_URL)
-                page.evaluate(
-                    f"window.localStorage.setItem('vertex_access_token', '{jwt_token}');"
-                )
-                page.goto(target_url, wait_until="networkidle")
+            page.evaluate("""
+                () => {
+                    const stage = window.Konva?.stages?.[0];
+                    if (!stage) return;
+                    if (!window.boardController) window.boardController = {};
+                    window.boardController._stage = stage;
+                }
+            """)
 
-                canvas_locator = page.locator("canvas")
-                canvas_locator.wait_for(state="visible")
-
-                # Allow basic canvas reconciliation and initial React mounting to complete
-                page.wait_for_timeout(2000)
-
-                # Map internal Konva stage properties onto the globally accessible interface tracker
-                page.evaluate("""
-                    () => {
-                        const stage = window.Konva?.stages?.[0];
-                        if (!stage) return;
-                        if (!window.boardController) window.boardController = {};
-                        window.boardController._stage = stage;
+            # ------------------------------------------------------------------
+            # IN-BROWSER METRIC EXTRACTION ENGINE
+            # ------------------------------------------------------------------
+            raw_nodes = page.evaluate("""
+                () => {
+                    const stage = window.boardController?._stage;
+                    if (!stage) {
+                        console.error('[Capture Engine] Extraction aborted: stage instance unavailable.');
+                        return [];
                     }
-                """)
 
-                # ------------------------------------------------------------------
-                # IN-BROWSER METRIC EXTRACTION ENGINE
-                # ------------------------------------------------------------------
+                    const NODE_STROKE_BUFFER = 35;
+                    const extracted = [];
 
-                raw_nodes = page.evaluate("""
-                    () => {
-                        const stage = window.boardController?._stage;
-                        if (!stage) {
-                            console.error('[Capture Engine] Extraction aborted: stage instance unavailable.');
-                            return [];
-                        }
+                    stage.getLayers().forEach(layer => {
+                        layer.getChildren().forEach((node, index) => {
+                            const className = node.getClassName();
+                            if (className === 'Transformer' || className === 'Arrow') return;
 
-                        const NODE_STROKE_BUFFER = 35;
-                        const extracted = [];
+                            const rect = node.getClientRect({ relativeTo: stage });
+                            if (!rect.width || !rect.height) return;
 
-                        stage.getLayers().forEach(layer => {
-                            layer.getChildren().forEach((node, index) => {
-                                const className = node.getClassName();
-                                if (className === 'Transformer' || className === 'Arrow') return;
-
-                                const rect = node.getClientRect({ relativeTo: stage });
-                                if (!rect.width || !rect.height) return;
-
-                                extracted.push({
-                                    id: node.id() || `node_${index}`,
-                                    type: className,
-                                    x: Math.round(rect.x) - NODE_STROKE_BUFFER,
-                                    y: Math.round(rect.y) - NODE_STROKE_BUFFER,
-                                    width:  Math.round(rect.width)  + (NODE_STROKE_BUFFER * 2),
-                                    height: Math.round(rect.height) + (NODE_STROKE_BUFFER * 2)
-                                });
+                            extracted.push({
+                                id: node.id() || `node_${index}`,
+                                type: className,
+                                x: Math.round(rect.x) - NODE_STROKE_BUFFER,
+                                y: Math.round(rect.y) - NODE_STROKE_BUFFER,
+                                width:  Math.round(rect.width)  + (NODE_STROKE_BUFFER * 2),
+                                height: Math.round(rect.height) + (NODE_STROKE_BUFFER * 2)
                             });
                         });
+                    });
 
-                        return extracted;
-                    }
-                """)
+                    return extracted;
+                }
+            """)
 
-                if not raw_nodes:
-                    browser.close()
-                    return OperationResult.FAILED
+            if not raw_nodes:
+                context.close()
+                return OperationResult.FAILED
 
-                # ------------------------------------------------------------------
-                # CLUSTER LOGIC & TRANSFORMS
-                # ------------------------------------------------------------------
+            # ------------------------------------------------------------------
+            # CLUSTER LOGIC & TRANSFORMS
+            # ------------------------------------------------------------------
+            clusters = self._group_nodes_into_clusters(raw_nodes, _CLUSTER_THRESHOLD)
+            print(f"[INFO] Grouped {len(raw_nodes)} components into {len(clusters)} visual clusters.")
 
-                clusters = self._group_nodes_into_clusters(raw_nodes, _CLUSTER_THRESHOLD)
+            # ------------------------------------------------------------------
+            # CAMERA VIEWPORT TRANSITIONS & RENDERED CAPTURE
+            # ------------------------------------------------------------------
+            output_dir = self.export_request.output_dir
+            os.makedirs(output_dir, exist_ok=True)
+            print(f"[INFO] Saving screenshots to: {output_dir}")
+
+            saved_paths: list[str] = []
+
+            for idx, cluster in enumerate(clusters):
+                c_min_x = min(n["x"] for n in cluster)
+                c_max_x = max(n["x"] + n["width"] for n in cluster)
+                c_min_y = min(n["y"] for n in cluster)
+                c_max_y = max(n["y"] + n["height"] for n in cluster)
+
+                cluster_w = c_max_x - c_min_x
+                cluster_h = c_max_y - c_min_y
+
+                center_x = c_min_x + (cluster_w / 2)
+                center_y = c_min_y + (cluster_h / 2)
+
+                scale_x = _VIEWPORT_WIDTH  / (cluster_w * _PADDING_FACTOR)
+                scale_y = _VIEWPORT_HEIGHT / (cluster_h * _PADDING_FACTOR)
+                final_zoom = max(min(min(scale_x, scale_y), _MAX_ZOOM_LEVEL), _MIN_ZOOM_LEVEL)
+
+                offset_x = (_VIEWPORT_WIDTH  / 2) - (center_x * final_zoom)
+                offset_y = (_VIEWPORT_HEIGHT / 2) - (center_y * final_zoom)
+
                 print(
-                    f"[INFO] Grouped {len(raw_nodes)} components "
-                    f"into {len(clusters)} visual clusters."
+                    f"[Capture] Cluster {idx + 1}/{len(clusters)} | "
+                    f"Elements: {len(cluster)} | Zoom: {final_zoom:.2f}"
                 )
 
-                # ------------------------------------------------------------------
-                # CAMERA VIEWPORT TRANSITIONS & RENDERED CAPTURE
-                # ------------------------------------------------------------------
-
-                output_dir = self.export_request.output_dir
-                os.makedirs(output_dir, exist_ok=True)
-                print(f"[INFO] Saving screenshots to: {output_dir}")
-
-                saved_paths: list[str] = []
-
-                for idx, cluster in enumerate(clusters):
-                    c_min_x = min(n["x"] for n in cluster)
-                    c_max_x = max(n["x"] + n["width"] for n in cluster)
-                    c_min_y = min(n["y"] for n in cluster)
-                    c_max_y = max(n["y"] + n["height"] for n in cluster)
-
-                    cluster_w = c_max_x - c_min_x
-                    cluster_h = c_max_y - c_min_y
-
-                    center_x = c_min_x + (cluster_w / 2)
-                    center_y = c_min_y + (cluster_h / 2)
-
-                    scale_x = _VIEWPORT_WIDTH  / (cluster_w * _PADDING_FACTOR)
-                    scale_y = _VIEWPORT_HEIGHT / (cluster_h * _PADDING_FACTOR)
-                    final_zoom = max(min(min(scale_x, scale_y), _MAX_ZOOM_LEVEL), _MIN_ZOOM_LEVEL)
-
-                    offset_x = (_VIEWPORT_WIDTH  / 2) - (center_x * final_zoom)
-                    offset_y = (_VIEWPORT_HEIGHT / 2) - (center_y * final_zoom)
-
-                    print(
-                        f"[Capture] Cluster {idx + 1}/{len(clusters)} | "
-                        f"Elements: {len(cluster)} | Zoom: {final_zoom:.2f}"
-                    )
-
-                    page.evaluate("""
-                        ({ x, y, zoom }) => {
-                            const ctrl = window.boardController;
-                            if (!ctrl || typeof ctrl.setCamera !== 'function') {
-                                console.error('[Capture Engine] Controller missing setCamera implementation.');
-                                return;
-                            }
-                            ctrl.setCamera({ x, y, zoom });
+                page.evaluate("""
+                    ({ x, y, zoom }) => {
+                        const ctrl = window.boardController;
+                        if (!ctrl || typeof ctrl.setCamera !== 'function') {
+                            console.error('[Capture Engine] Controller missing setCamera implementation.');
+                            return;
                         }
-                    """, {"x": offset_x, "y": offset_y, "zoom": final_zoom})
+                        ctrl.setCamera({ x, y, zoom });
+                    }
+                """, {"x": offset_x, "y": offset_y, "zoom": final_zoom})
 
-                    page.wait_for_timeout(800)
+                page.wait_for_timeout(800)
 
-                    out_path = os.path.join(output_dir, f"cluster_output_{idx + 1:02d}.jpeg")
-                    canvas_locator.screenshot(path=out_path, type="jpeg", quality=95)
-                    saved_paths.append(out_path)
-                    print(f"  └ Saved snapshot: {out_path}")
+                out_path = os.path.join(output_dir, f"cluster_output_{idx + 1:02d}.jpeg")
+                canvas_locator.screenshot(path=out_path, type="jpeg", quality=95)
+                saved_paths.append(out_path)
+                print(f"  └ Saved snapshot: {out_path}")
 
-                browser.close()
-                return OperationResult.SUCCEED
+            # Always close the context when done — frees memory and
+            # ensures the next job gets a clean session (no stale localStorage, cookies, etc.)
+            context.close()
+            return OperationResult.SUCCEED
 
         except Exception as e:
             print(f"[ERROR] Executing snapshot process failed: {str(e)}")
+            try:
+                context.close()
+            except Exception:
+                pass
             return OperationResult.FAILED

@@ -7,33 +7,57 @@ from app.strategies.MetadataExportService import MetadataExportService
 from app.strategies.PdfExportService import PdfExportService
 from app.dataTypes.FileType import FileType
 from app.infrastructure.ScreenshotService import ScreenshotService
+
+from playwright.sync_api import sync_playwright, Playwright, Browser
+
 import datetime
 import json
 import logging
-import traceback
 
 from typing import Union
 
 logger = logging.getLogger(__name__)
+
+_BLPOP_TIMEOUT = 5
 
 
 class ExportService:
 
     def __init__(self):
         self.redis_manager = RedisManager()
-
         self.export_type_routes = {
             FileType.JPEG: ImageExportService,
             FileType.PDF: PdfExportService,
             FileType.VERTEX: MetadataExportService
         }
 
+        self._playwright: Playwright = sync_playwright().start()
+        self._browser: Browser = self._playwright.chromium.launch(
+            headless=True,
+            args=[
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-web-security",
+                "--allow-running-insecure-content"
+            ]
+        )
+        logger.info("Playwright browser initialized.")
+
+    def shutdown(self):
+        """Clean up Playwright resources. Call this before the process exits."""
+        try:
+            self._browser.close()
+            self._playwright.stop()
+            logger.info("Playwright browser shut down cleanly.")
+        except Exception as e:
+            logger.warning("Error during Playwright shutdown: %s", e)
+
     def handlePendingRequest(self) -> OperationResult:
-        request = self.getPendingExportRequest()
+        request = self._waitForExportRequest()
 
         if request is None:
-            logger.error("Request was corrupted or empty")
-            return OperationResult.FAILED
+            return OperationResult.SUCCEED
 
         export_processor: ExportProcessor = self.export_type_routes.get(request.file_type)
 
@@ -42,7 +66,7 @@ class ExportService:
             return OperationResult.FAILED
 
         if export_processor.requiresScreenshots():
-            screenshot_service = ScreenshotService(request)
+            screenshot_service = ScreenshotService(request, self._browser)
             result = screenshot_service.takeScreenshots()
 
             if result != OperationResult.SUCCEED:
@@ -58,11 +82,10 @@ class ExportService:
 
         return result
 
-    def getPendingExportRequest(self) -> Union[ExportRequest, None]:
+    def _waitForExportRequest(self) -> Union[ExportRequest, None]:
         try:
-            raw = self.redis_manager.getFirstFromQueue()
+            raw = self.redis_manager.blockingGetFirstFromQueue(timeout=_BLPOP_TIMEOUT)
             if raw is None:
-                logger.error("Redis queue is empty")
                 return None
             data = json.loads(raw)
             return ExportRequest(
@@ -74,5 +97,5 @@ class ExportService:
                 request_time_stamp=datetime.datetime.fromisoformat(data["request_time_stamp"]),
             )
         except (KeyError, json.JSONDecodeError) as e:
-            logger.error("getPendingExportRequest failed: %s", e)
+            logger.error("_waitForExportRequest failed to parse job: %s", e)
             return None
