@@ -1,7 +1,7 @@
 import math
 import pytest
 from datetime import datetime
-from unittest.mock import MagicMock, patch, PropertyMock, call
+from unittest.mock import MagicMock, patch, call
 
 from app.dataTypes.OperationResult import OperationResult
 from app.dataTypes.ExportRequest import ExportRequest
@@ -131,22 +131,25 @@ class TestGroupNodesIntoClusters:
 
 # ==============================================================================
 # takeScreenshots — Playwright integration (fully mocked)
+#
+# The new ScreenshotService receives an already-launched Browser object via DI
+# (no sync_playwright context manager involved). Each takeScreenshots() call
+# opens its own context/page on that shared browser, then closes the context.
 # ==============================================================================
 
-def _build_playwright_mocks(raw_nodes: list[dict]):
-    mock_page = MagicMock()
-    mock_canvas = MagicMock()
-    mock_browser = MagicMock()
-    mock_context = MagicMock()
-    mock_playwright = MagicMock()
+def _build_browser_mock(raw_nodes: list[dict]):
+    """
+    Builds a mock Browser whose new_context() chain behaves like a real
+    Playwright browser context. Returns (mock_browser, mock_page, mock_canvas).
+    """
+    mock_browser  = MagicMock()
+    mock_context  = MagicMock()
+    mock_page     = MagicMock()
+    mock_canvas   = MagicMock()
 
-    mock_playwright.__enter__ = MagicMock(return_value=mock_playwright)
-    mock_playwright.__exit__ = MagicMock(return_value=False)
-    mock_playwright.chromium.launch.return_value = mock_browser
     mock_browser.new_context.return_value = mock_context
-    mock_context.new_page.return_value = mock_page
-
-    mock_page.locator.return_value = mock_canvas
+    mock_context.new_page.return_value    = mock_page
+    mock_page.locator.return_value        = mock_canvas
 
     def evaluate_side_effect(script, *args, **kwargs):
         if isinstance(script, str) and "extracted.push" in script:
@@ -155,49 +158,44 @@ def _build_playwright_mocks(raw_nodes: list[dict]):
 
     mock_page.evaluate.side_effect = evaluate_side_effect
 
-    return mock_playwright, mock_page, mock_canvas, mock_browser
+    return mock_browser, mock_context, mock_page, mock_canvas
 
 
 class TestTakeScreenshots:
 
     def test_returns_succeed_on_happy_path(self):
         nodes = [make_node(0, 0, 200, 200, "n1")]
-        mock_pw, mock_page, mock_canvas, mock_browser = _build_playwright_mocks(nodes)
+        mock_browser, mock_context, mock_page, mock_canvas = _build_browser_mock(nodes)
 
-        with patch("app.infrastructure.ScreenshotService.sync_playwright", return_value=mock_pw):
-            service = ScreenshotService(make_export_request())
-            result = service.takeScreenshots()
+        service = ScreenshotService(make_export_request(), mock_browser)
+        result = service.takeScreenshots()
 
         assert result == OperationResult.SUCCEED
 
     def test_returns_failed_when_no_nodes_detected(self):
-        mock_pw, mock_page, mock_canvas, mock_browser = _build_playwright_mocks([])
+        mock_browser, mock_context, mock_page, mock_canvas = _build_browser_mock([])
 
-        with patch("app.infrastructure.ScreenshotService.sync_playwright", return_value=mock_pw):
-            service = ScreenshotService(make_export_request())
-            result = service.takeScreenshots()
+        service = ScreenshotService(make_export_request(), mock_browser)
+        result = service.takeScreenshots()
 
         assert result == OperationResult.FAILED
 
     def test_returns_failed_on_playwright_exception(self):
-        mock_pw = MagicMock()
-        mock_pw.__enter__ = MagicMock(return_value=mock_pw)
-        mock_pw.__exit__ = MagicMock(return_value=False)
-        mock_pw.chromium.launch.side_effect = RuntimeError("Browser failed to launch")
+        mock_browser = MagicMock()
+        mock_browser.new_context.side_effect = RuntimeError("Browser failed to launch")
 
-        with patch("app.infrastructure.ScreenshotService.sync_playwright", return_value=mock_pw):
-            service = ScreenshotService(make_export_request())
-            result = service.takeScreenshots()
+        service = ScreenshotService(make_export_request(), mock_browser)
+        result = service.takeScreenshots()
 
         assert result == OperationResult.FAILED
 
     def test_jwt_injected_into_localstorage(self):
         nodes = [make_node(0, 0, 200, 200, "n1")]
-        mock_pw, mock_page, mock_canvas, mock_browser = _build_playwright_mocks(nodes)
+        mock_browser, mock_context, mock_page, mock_canvas = _build_browser_mock(nodes)
 
         jwt = "my.test.jwt"
-        with patch("app.infrastructure.ScreenshotService.sync_playwright", return_value=mock_pw):
-            ScreenshotService(make_export_request(jwt=jwt)).takeScreenshots()
+        service = ScreenshotService(make_export_request(jwt=jwt), mock_browser)
+        service.takeScreenshots()
 
         injected_calls = [
             str(c) for c in mock_page.evaluate.call_args_list
@@ -207,11 +205,11 @@ class TestTakeScreenshots:
 
     def test_navigates_to_correct_board_url(self):
         nodes = [make_node(0, 0, 200, 200, "n1")]
-        mock_pw, mock_page, mock_canvas, mock_browser = _build_playwright_mocks(nodes)
+        mock_browser, mock_context, mock_page, mock_canvas = _build_browser_mock(nodes)
 
         board_id = "board-abc-999"
-        with patch("app.infrastructure.ScreenshotService.sync_playwright", return_value=mock_pw):
-            ScreenshotService(make_export_request(board_id=board_id)).takeScreenshots()
+        service = ScreenshotService(make_export_request(board_id=board_id), mock_browser)
+        service.takeScreenshots()
 
         goto_urls = [c.args[0] for c in mock_page.goto.call_args_list if c.args]
         assert any(board_id in url for url in goto_urls), (
@@ -223,10 +221,10 @@ class TestTakeScreenshots:
             make_node(0,    0, 100, 100, "a"),
             make_node(5000, 0, 100, 100, "b"),
         ]
-        mock_pw, mock_page, mock_canvas, mock_browser = _build_playwright_mocks(nodes)
+        mock_browser, mock_context, mock_page, mock_canvas = _build_browser_mock(nodes)
 
-        with patch("app.infrastructure.ScreenshotService.sync_playwright", return_value=mock_pw):
-            ScreenshotService(make_export_request()).takeScreenshots()
+        service = ScreenshotService(make_export_request(), mock_browser)
+        service.takeScreenshots()
 
         assert mock_canvas.screenshot.call_count == 2
 
@@ -235,29 +233,41 @@ class TestTakeScreenshots:
             make_node(0,   0, 100, 100, "a"),
             make_node(150, 0, 100, 100, "b"),
         ]
-        mock_pw, mock_page, mock_canvas, mock_browser = _build_playwright_mocks(nodes)
+        mock_browser, mock_context, mock_page, mock_canvas = _build_browser_mock(nodes)
 
-        with patch("app.infrastructure.ScreenshotService.sync_playwright", return_value=mock_pw):
-            ScreenshotService(make_export_request()).takeScreenshots()
+        service = ScreenshotService(make_export_request(), mock_browser)
+        service.takeScreenshots()
 
         assert mock_canvas.screenshot.call_count == 1
 
-    def test_browser_closed_on_success(self):
+    def test_context_closed_on_success(self):
         nodes = [make_node(0, 0, 200, 200, "n1")]
-        mock_pw, mock_page, mock_canvas, mock_browser = _build_playwright_mocks(nodes)
+        mock_browser, mock_context, mock_page, mock_canvas = _build_browser_mock(nodes)
 
-        with patch("app.infrastructure.ScreenshotService.sync_playwright", return_value=mock_pw):
-            ScreenshotService(make_export_request()).takeScreenshots()
+        service = ScreenshotService(make_export_request(), mock_browser)
+        service.takeScreenshots()
 
-        mock_browser.close.assert_called_once()
+        mock_context.close.assert_called_once()
 
-    def test_browser_closed_when_no_nodes(self):
-        mock_pw, mock_page, mock_canvas, mock_browser = _build_playwright_mocks([])
+    def test_context_closed_when_no_nodes(self):
+        mock_browser, mock_context, mock_page, mock_canvas = _build_browser_mock([])
 
-        with patch("app.infrastructure.ScreenshotService.sync_playwright", return_value=mock_pw):
-            ScreenshotService(make_export_request()).takeScreenshots()
+        service = ScreenshotService(make_export_request(), mock_browser)
+        service.takeScreenshots()
 
-        mock_browser.close.assert_called_once()
+        mock_context.close.assert_called_once()
+
+    def test_context_closed_on_exception(self):
+        mock_browser = MagicMock()
+        mock_context = MagicMock()
+        mock_browser.new_context.return_value = mock_context
+        mock_context.new_page.side_effect = RuntimeError("page creation failed")
+
+        service = ScreenshotService(make_export_request(), mock_browser)
+        result = service.takeScreenshots()
+
+        assert result == OperationResult.FAILED
+        mock_context.close.assert_called_once()
 
     def test_setcamera_called_for_each_cluster(self):
         nodes = [
@@ -265,7 +275,7 @@ class TestTakeScreenshots:
             make_node(150,  0, 100, 100, "b"),
             make_node(9000, 0, 100, 100, "c"),
         ]
-        mock_pw, mock_page, mock_canvas, mock_browser = _build_playwright_mocks(nodes)
+        mock_browser, mock_context, mock_page, mock_canvas = _build_browser_mock(nodes)
 
         set_camera_calls = []
 
@@ -278,7 +288,7 @@ class TestTakeScreenshots:
 
         mock_page.evaluate.side_effect = evaluate_side_effect
 
-        with patch("app.infrastructure.ScreenshotService.sync_playwright", return_value=mock_pw):
-            ScreenshotService(make_export_request()).takeScreenshots()
+        service = ScreenshotService(make_export_request(), mock_browser)
+        service.takeScreenshots()
 
         assert len(set_camera_calls) == 2

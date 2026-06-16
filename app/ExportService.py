@@ -94,6 +94,8 @@ class ExportService:
                 sender_jwt=data["sender_jwt"],
                 sender_email=data["sender_email"],
                 file_type=FileType[data["file_type"]],
+                board_metadata=data.get("board_metadata"),
+                canvas_data=data.get("canvas_data"),
                 request_time_stamp=datetime.datetime.fromisoformat(data["request_time_stamp"]),
             )
         except (KeyError, json.JSONDecodeError) as e:

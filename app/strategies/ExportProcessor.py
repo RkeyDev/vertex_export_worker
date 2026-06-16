@@ -7,6 +7,7 @@ class ExportProcessor(ABC):
     @staticmethod
     @abstractmethod
     def requiresScreenshots() -> bool:
+        """Indicates whether this strategy requires a Playwright headless browser instance."""
         pass
      
     @staticmethod
