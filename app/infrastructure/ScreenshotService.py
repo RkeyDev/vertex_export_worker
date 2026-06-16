@@ -4,6 +4,12 @@ from playwright.sync_api import Browser
 
 from app.dataTypes.OperationResult import OperationResult
 from app.dataTypes.ExportRequest import ExportRequest
+from app.infrastructure.js_scripts import (
+    INJECT_STAGE_INTO_CONTROLLER,
+    EXTRACT_NODE_RECTS,
+    SET_CAMERA,
+    inject_jwt,
+)
 
 # ==============================================================================
 # CONFIGURATION CONSTANTS
@@ -79,9 +85,9 @@ class ScreenshotService:
     # ==========================================================================
 
     def takeScreenshots(self) -> OperationResult:
-        board_id     = self.export_request.board_id
-        jwt_token    = self.export_request.sender_jwt
-        target_url   = f"{_BASE_URL}/board?id={board_id}"
+        board_id   = self.export_request.board_id
+        jwt_token  = self.export_request.sender_jwt
+        target_url = f"{_BASE_URL}/board?id={board_id}"
 
         try:
             # Each job gets its own isolated context (cookies, localStorage, etc.)
@@ -94,16 +100,16 @@ class ScreenshotService:
             # ------------------------------------------------------------------
             # DIAGNOSTIC ENGINE INTERCEPTORS
             # ------------------------------------------------------------------
-            page.on("console", lambda msg: print(f"  [Browser Console] {msg.type.upper()}: {msg.text}"))
-            page.on("response", lambda res: print(f"  [Browser Network] {res.status} -> {res.url}") if res.status >= 400 else None)
+            page.on("console",       lambda msg: print(f"  [Browser Console] {msg.type.upper()}: {msg.text}"))
+            page.on("response",      lambda res: print(f"  [Browser Network] {res.status} -> {res.url}") if res.status >= 400 else None)
             page.on("requestfailed", lambda req: print(f"  [Browser Network Error] Failed: {req.url}"))
-            page.on("pageerror", lambda exc: print(f"  [Browser Runtime Crash] CRITICAL EXCEPTION: {exc}"))
+            page.on("pageerror",     lambda exc: print(f"  [Browser Runtime Crash] CRITICAL EXCEPTION: {exc}"))
 
             # ------------------------------------------------------------------
             # PLAYWRIGHT INITIALIZATION & WORKSPACE INJECTION
             # ------------------------------------------------------------------
             page.goto(_BASE_URL)
-            page.evaluate(f"window.localStorage.setItem('vertex_access_token', '{jwt_token}');")
+            page.evaluate(inject_jwt(jwt_token))
             page.goto(target_url, wait_until="networkidle")
 
             canvas_locator = page.locator("canvas")
@@ -111,51 +117,12 @@ class ScreenshotService:
 
             page.wait_for_timeout(2000)
 
-            page.evaluate("""
-                () => {
-                    const stage = window.Konva?.stages?.[0];
-                    if (!stage) return;
-                    if (!window.boardController) window.boardController = {};
-                    window.boardController._stage = stage;
-                }
-            """)
+            page.evaluate(INJECT_STAGE_INTO_CONTROLLER)
 
             # ------------------------------------------------------------------
             # IN-BROWSER METRIC EXTRACTION ENGINE
             # ------------------------------------------------------------------
-            raw_nodes = page.evaluate("""
-                () => {
-                    const stage = window.boardController?._stage;
-                    if (!stage) {
-                        console.error('[Capture Engine] Extraction aborted: stage instance unavailable.');
-                        return [];
-                    }
-
-                    const NODE_STROKE_BUFFER = 35;
-                    const extracted = [];
-
-                    stage.getLayers().forEach(layer => {
-                        layer.getChildren().forEach((node, index) => {
-                            const className = node.getClassName();
-                            if (className === 'Transformer' || className === 'Arrow') return;
-
-                            const rect = node.getClientRect({ relativeTo: stage });
-                            if (!rect.width || !rect.height) return;
-
-                            extracted.push({
-                                id: node.id() || `node_${index}`,
-                                type: className,
-                                x: Math.round(rect.x) - NODE_STROKE_BUFFER,
-                                y: Math.round(rect.y) - NODE_STROKE_BUFFER,
-                                width:  Math.round(rect.width)  + (NODE_STROKE_BUFFER * 2),
-                                height: Math.round(rect.height) + (NODE_STROKE_BUFFER * 2)
-                            });
-                        });
-                    });
-
-                    return extracted;
-                }
-            """)
+            raw_nodes = page.evaluate(EXTRACT_NODE_RECTS)
 
             if not raw_nodes:
                 context.close()
@@ -200,16 +167,7 @@ class ScreenshotService:
                     f"Elements: {len(cluster)} | Zoom: {final_zoom:.2f}"
                 )
 
-                page.evaluate("""
-                    ({ x, y, zoom }) => {
-                        const ctrl = window.boardController;
-                        if (!ctrl || typeof ctrl.setCamera !== 'function') {
-                            console.error('[Capture Engine] Controller missing setCamera implementation.');
-                            return;
-                        }
-                        ctrl.setCamera({ x, y, zoom });
-                    }
-                """, {"x": offset_x, "y": offset_y, "zoom": final_zoom})
+                page.evaluate(SET_CAMERA, {"x": offset_x, "y": offset_y, "zoom": final_zoom})
 
                 page.wait_for_timeout(800)
 
