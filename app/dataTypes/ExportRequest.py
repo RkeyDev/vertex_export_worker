@@ -32,7 +32,8 @@ class ExportRequest:
         across varying host OS storage kernels (Windows/UNIX filesystem safety).
         """
         timestamp_str = self.request_time_stamp.strftime("%Y-%m-%dT%H-%M-%S")
-        return os.path.join(".", "output", self.sender_email, self.board_id, timestamp_str)
+        base_dir = os.getenv("OUTPUT_BASE_DIR", "./output")
+        return os.path.join(base_dir, self.sender_email, self.board_id, timestamp_str)
 
     @classmethod
     def from_dict(cls, data: dict) -> "ExportRequest":

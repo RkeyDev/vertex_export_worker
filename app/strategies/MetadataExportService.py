@@ -52,7 +52,7 @@ class MetadataExportService(ExportProcessor):
                 vertex_file.writestr("canvas.json", json.dumps(canvas, indent=2))
 
             logger.info(f"Successfully serialized and archived board '{export_request.board_id}' to location: {target_zip_path}")
-            return OperationResult.SUCCESS
+            return OperationResult.SUCCEED
 
         except PermissionError as pe:
             logger.error(

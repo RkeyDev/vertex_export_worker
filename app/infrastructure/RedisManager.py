@@ -42,10 +42,10 @@ class RedisManager:
     def pushToQueue(self, queue_key: str = EXPORT_QUEUE_KEY, *values: str) -> OperationResult:
         try:
             self._client.rpush(queue_key, *values)
-            return OperationResult.SUCCEED()
+            return OperationResult.SUCCEED
         except redis.RedisError as e:
             logger.error("pushToQueue failed: %s", e)
-            return OperationResult.FAILED(str(e))
+            return OperationResult.FAILED
 
     def getQueueLength(self, queue_key: str = EXPORT_QUEUE_KEY) -> int:
         try:
@@ -61,10 +61,10 @@ class RedisManager:
                 self._client.setex(key, ttl_seconds, serialised)
             else:
                 self._client.set(key, serialised)
-            return OperationResult.SUCCEED()
+            return OperationResult.SUCCEED
         except (redis.RedisError, TypeError) as e:
             logger.error("addKeyValue failed for key '%s': %s", key, e)
-            return OperationResult.FAILED(str(e))
+            return OperationResult.FAILED
 
     def getValue(self, key: str) -> Union[Any, None]:
         try:
@@ -77,10 +77,10 @@ class RedisManager:
     def deleteKey(self, key: str) -> OperationResult:
         try:
             self._client.delete(key)
-            return OperationResult.SUCCEED()
+            return OperationResult.SUCCEED
         except redis.RedisError as e:
             logger.error("deleteKey failed for key '%s': %s", key, e)
-            return OperationResult.FAILED(str(e))
+            return OperationResult.FAILED
 
     def keyExists(self, key: str) -> bool:
         try:
@@ -92,19 +92,19 @@ class RedisManager:
     def setTTL(self, key: str, ttl_seconds: int) -> OperationResult:
         try:
             if not self._client.expire(key, ttl_seconds):
-                return OperationResult.FAILED(f"Key '{key}' does not exist")
-            return OperationResult.SUCCEED()
+                return OperationResult.FAILED
+            return OperationResult.SUCCEED
         except redis.RedisError as e:
             logger.error("setTTL failed for key '%s': %s", key, e)
-            return OperationResult.FAILED(str(e))
+            return OperationResult.FAILED
 
     def hashSet(self, hash_key: str, field: str, value: Any) -> OperationResult:
         try:
             self._client.hset(hash_key, field, json.dumps(value))
-            return OperationResult.SUCCEED()
+            return OperationResult.SUCCEED
         except (redis.RedisError, TypeError) as e:
             logger.error("hashSet failed: %s", e)
-            return OperationResult.FAILED(str(e))
+            return OperationResult.FAILED
 
     def hashGet(self, hash_key: str, field: str) -> Union[Any, None]:
         try:
@@ -125,10 +125,10 @@ class RedisManager:
     def publish(self, channel: str, message: Any) -> OperationResult:
         try:
             self._client.publish(channel, json.dumps(message))
-            return OperationResult.SUCCEED()
+            return OperationResult.SUCCEED
         except (redis.RedisError, TypeError) as e:
             logger.error("publish failed on channel '%s': %s", channel, e)
-            return OperationResult.FAILED(str(e))
+            return OperationResult.FAILED
 
     def ping(self) -> bool:
         try:
