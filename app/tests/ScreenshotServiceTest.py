@@ -197,11 +197,12 @@ class TestTakeScreenshots:
         service = ScreenshotService(make_export_request(jwt=jwt), mock_browser)
         service.takeScreenshots()
 
+        # JWT is now injected via context.add_init_script (not page.evaluate)
         injected_calls = [
-            str(c) for c in mock_page.evaluate.call_args_list
+            str(c) for c in mock_context.add_init_script.call_args_list
             if jwt in str(c)
         ]
-        assert len(injected_calls) >= 1, "JWT was never injected into localStorage"
+        assert len(injected_calls) >= 1, "JWT was never injected via add_init_script"
 
     def test_navigates_to_correct_board_url(self):
         nodes = [make_node(0, 0, 200, 200, "n1")]

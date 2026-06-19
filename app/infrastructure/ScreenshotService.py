@@ -108,14 +108,22 @@ class ScreenshotService:
             # ------------------------------------------------------------------
             # PLAYWRIGHT INITIALIZATION & WORKSPACE INJECTION
             # ------------------------------------------------------------------
-            page.goto(_BASE_URL)
-            page.evaluate(inject_jwt(jwt_token))
+            # Inject JWT via init script so it's set in localStorage before
+            # any page JS executes — avoids a redundant first navigation.
+            context.add_init_script(inject_jwt(jwt_token))
             page.goto(target_url, wait_until="networkidle")
 
             canvas_locator = page.locator("canvas")
             canvas_locator.wait_for(state="visible")
 
-            page.wait_for_timeout(2000)
+            # Wait for Konva stage to be fully initialised with layers,
+            # instead of a fixed 2 000 ms sleep.  We check Konva directly
+            # because boardController._stage is only set by the injection
+            # script that runs after this wait.
+            page.wait_for_function(
+                "() => window.Konva?.stages?.[0]?.getLayers()?.length > 0",
+                timeout=5000,
+            )
 
             page.evaluate(INJECT_STAGE_INTO_CONTROLLER)
 
@@ -169,7 +177,9 @@ class ScreenshotService:
 
                 page.evaluate(SET_CAMERA, {"x": offset_x, "y": offset_y, "zoom": final_zoom})
 
-                page.wait_for_timeout(800)
+                # setCamera() is synchronous; the canvas re-renders on the
+                # next animation frame (~16 ms).  150 ms gives ample headroom.
+                page.wait_for_timeout(150)
 
                 out_path = os.path.join(output_dir, f"cluster_output_{idx + 1:02d}.jpeg")
                 canvas_locator.screenshot(path=out_path, type="jpeg", quality=95)
