@@ -25,6 +25,10 @@ MAX_PRINTABLE_HEIGHT = PAGE_SIZE[1] - (MARGIN_TOP + MARGIN_BOTTOM)
 
 
 class PdfExportService(ExportProcessor):
+    
+    @staticmethod
+    def screenshotsNumber() -> int:
+        return -1 # -1 means to take all possible screenshots
 
     @staticmethod
     def requiresScreenshots() -> bool:

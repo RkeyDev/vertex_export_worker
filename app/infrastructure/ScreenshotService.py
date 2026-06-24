@@ -21,14 +21,22 @@ _MIN_ZOOM_LEVEL    = 0.5
 _MAX_ZOOM_LEVEL    = 5.0
 _CLUSTER_THRESHOLD = 650.0
 
+_CAPTURE_ALL = -1
+
 _BASE_URL = os.getenv("BASE_URL", "http://localhost:5174")
 
 
 class ScreenshotService:
 
-    def __init__(self, export_request: ExportRequest, browser: Browser) -> None:
-        self.export_request = export_request
-        self._browser = browser
+    def __init__(
+        self,
+        export_request: ExportRequest,
+        browser: Browser,
+        number_of_screenshots: int = _CAPTURE_ALL,
+    ) -> None:
+        self.export_request       = export_request
+        self._browser             = browser
+        self._number_of_screenshots = number_of_screenshots
 
     # ==========================================================================
     # SPATIAL ALGORITHMS & CLUSTERING MECHANISMS
@@ -79,6 +87,31 @@ class ScreenshotService:
                     break
 
         return clusters
+
+    # ==========================================================================
+    # CAPTURE LIMIT RESOLUTION
+    # ==========================================================================
+
+    @staticmethod
+    def _resolve_capture_limit(number_of_screenshots: int, total_clusters: int) -> int:
+        """
+        Resolves the effective number of screenshots to capture.
+
+        - ``_CAPTURE_ALL`` (-1): capture every cluster (no limit).
+        - Any positive value: capture that many clusters, capped at the total
+          available so we never attempt more screenshots than there are clusters.
+        """
+        if number_of_screenshots == _CAPTURE_ALL:
+            return total_clusters
+
+        if number_of_screenshots > total_clusters:
+            print(
+                f"[WARN] Requested {number_of_screenshots} screenshots but only "
+                f"{total_clusters} cluster(s) are available — capping at {total_clusters}."
+            )
+            return total_clusters
+
+        return number_of_screenshots
 
     # ==========================================================================
     # MAIN CAPTURE PIPELINE
@@ -142,6 +175,17 @@ class ScreenshotService:
             clusters = self._group_nodes_into_clusters(raw_nodes, _CLUSTER_THRESHOLD)
             print(f"[INFO] Grouped {len(raw_nodes)} components into {len(clusters)} visual clusters.")
 
+            capture_limit = self._resolve_capture_limit(self._number_of_screenshots, len(clusters))
+            clusters_to_capture = clusters[:capture_limit]
+
+            if self._number_of_screenshots == _CAPTURE_ALL:
+                print(f"[INFO] Capture mode: ALL ({capture_limit} screenshot(s)).")
+            else:
+                print(
+                    f"[INFO] Capture mode: LIMITED — capturing {capture_limit} of "
+                    f"{len(clusters)} available cluster(s)."
+                )
+
             # ------------------------------------------------------------------
             # CAMERA VIEWPORT TRANSITIONS & RENDERED CAPTURE
             # ------------------------------------------------------------------
@@ -151,7 +195,7 @@ class ScreenshotService:
 
             saved_paths: list[str] = []
 
-            for idx, cluster in enumerate(clusters):
+            for idx, cluster in enumerate(clusters_to_capture):
                 c_min_x = min(n["x"] for n in cluster)
                 c_max_x = max(n["x"] + n["width"] for n in cluster)
                 c_min_y = min(n["y"] for n in cluster)
@@ -171,7 +215,7 @@ class ScreenshotService:
                 offset_y = (_VIEWPORT_HEIGHT / 2) - (center_y * final_zoom)
 
                 print(
-                    f"[Capture] Cluster {idx + 1}/{len(clusters)} | "
+                    f"[Capture] Cluster {idx + 1}/{capture_limit} | "
                     f"Elements: {len(cluster)} | Zoom: {final_zoom:.2f}"
                 )
 
@@ -185,6 +229,8 @@ class ScreenshotService:
                 canvas_locator.screenshot(path=out_path, type="jpeg", quality=95)
                 saved_paths.append(out_path)
                 print(f"  └ Saved snapshot: {out_path}")
+
+            print(f"[INFO] Capture complete — {len(saved_paths)} screenshot(s) saved.")
 
             # Always close the context when done — frees memory and
             # ensures the next job gets a clean session (no stale localStorage, cookies, etc.)

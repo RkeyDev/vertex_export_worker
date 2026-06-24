@@ -19,7 +19,7 @@ def make_export_request(board_id="test-board-123", jwt="mock.jwt.token") -> Expo
         board_id=board_id,
         sender_jwt=jwt,
         sender_email="roei1576@gmail.com",
-        file_type=FileType.JPEG,
+        file_type=FileType.JPEG_ZIP,
         request_time_stamp=datetime(2025, 1, 1, 12, 0, 0),
     )
 

@@ -1,5 +1,3 @@
-from typing import Union
-
 from app.dataTypes.ExportRequest import ExportRequest
 from app.dataTypes.OperationResult import OperationResult
 from app.strategies.ExportProcessor import ExportProcessor
@@ -7,6 +5,10 @@ from app.infrastructure.CompressFileService import CompressFileService
 
 
 class ImageExportService(ExportProcessor):
+
+    @staticmethod
+    def screenshotsNumber() -> int:
+        return -1 # -1 means to take all possible screenshots
 
     @staticmethod
     def requiresScreenshots() -> bool:

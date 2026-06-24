@@ -14,6 +14,7 @@ from app.strategies.ExportProcessor import ExportProcessor
 from app.strategies.ImageExportService import ImageExportService
 from app.strategies.MetadataExportService import MetadataExportService
 from app.strategies.PdfExportService import PdfExportService
+from app.strategies.ThumbnailExportService import ThumbnailExportService
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +28,10 @@ class ExportService:
 
         # Maps file type specs to concrete strategy handler implementations
         self.export_type_routes = {
-            FileType.JPEG: ImageExportService,
+            FileType.JPEG_ZIP: ImageExportService,
             FileType.PDF: PdfExportService,
             FileType.VERTEX: MetadataExportService,
+            FileType.JPEG_THUMBNAIL: ThumbnailExportService,
         }
 
         # Lifecycle management initialisation for headless rendering
@@ -89,7 +91,7 @@ class ExportService:
 
         # Phase 1: Visual rasterisation via Playwright (only for image-bearing formats)
         if export_processor.requiresScreenshots():
-            screenshot_service = ScreenshotService(request, self._browser)
+            screenshot_service = ScreenshotService(request, self._browser, export_processor.screenshotsNumber())
             screenshot_result = screenshot_service.takeScreenshots()
 
             if screenshot_result != OperationResult.SUCCEED:
@@ -150,9 +152,10 @@ class ExportService:
             relative_dir = os.path.join("output", request.sender_email, request.board_id, timestamp_str)
             
             filename_map = {
-                FileType.JPEG:   f"{request.board_id}.zip",
+                FileType.JPEG_ZIP:   f"{request.board_id}.zip",
                 FileType.PDF:    f"{request.board_id}.pdf",
                 FileType.VERTEX: f"{request.board_id}.vertex",
+                FileType.JPEG_THUMBNAIL: f"{request.board_id}_thumbnail.jpeg",
             }
 
             filename = filename_map.get(request.file_type, request.board_id)
